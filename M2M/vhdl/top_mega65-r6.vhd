@@ -446,7 +446,7 @@ architecture synthesis of mega65_r6 is
 begin
 
    -- Driver for the audio DAC (AK4432VT).
-   i_audio : entity work.audio
+   i_audio : entity work.audio_m2m
       port map (
          audio_clk_i    => audio_clk,
          audio_reset_i  => audio_reset,

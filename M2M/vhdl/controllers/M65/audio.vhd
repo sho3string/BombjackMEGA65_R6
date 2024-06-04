@@ -18,7 +18,7 @@ use ieee.numeric_std.all;
 library unisim;
 use unisim.vcomponents.all;
 
-entity audio is
+entity audio_m2m is
 port (
    audio_clk_i    : in    std_logic;   -- 12.288 MHz
    audio_reset_i  : in    std_logic;
@@ -32,9 +32,9 @@ port (
    audio_lrclk_o  : out   std_logic;   -- Input Channel Clock Pin,      48.0 kHz
    audio_pdn_n_o  : out   std_logic    -- Power-Down & Reset Pin
 );
-end entity audio;
+end entity audio_m2m;
 
-architecture synthesis of audio is
+architecture synthesis of audio_m2m is
 
    signal fs_counter : integer range 0 to 255;
    signal i2s_data   : std_logic_vector(63 downto 0);
