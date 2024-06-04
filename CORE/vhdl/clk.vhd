@@ -52,14 +52,14 @@ begin
          STARTUP_WAIT         => FALSE,
          CLKIN1_PERIOD        => 10.0,       -- INPUT @ 100 MHz
          REF_JITTER1          => 0.010,
-         DIVCLK_DIVIDE        => 1,
-         CLKFBOUT_MULT_F      => 6.750,      -- 675 MHz
+         DIVCLK_DIVIDE        => 5,
+         CLKFBOUT_MULT_F      => 36.000,     -- (100 MHz x 36) / 5 = 720 MHz
          CLKFBOUT_PHASE       => 0.000,
          CLKFBOUT_USE_FINE_PS => FALSE,
-         CLKOUT0_DIVIDE_F     => 12.500,     -- 54 MHz
+         CLKOUT0_DIVIDE_F     => 15.000,     -- 720 MHz / 15.000 = 48 MHz
          CLKOUT0_PHASE        => 0.000,
          CLKOUT0_DUTY_CYCLE   => 0.500,
-         CLKOUT0_USE_FINE_PS  => FALSE
+         CLKOUT0_USE_FINE_PS  => FALSE             
       )
       port map (
          -- Output clocks

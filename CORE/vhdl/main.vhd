@@ -22,7 +22,8 @@ entity main is
       reset_soft_i            : in  std_logic;
       reset_hard_i            : in  std_logic;
       pause_i                 : in  std_logic;
-
+      dim_video_o             : out std_logic;
+      
       -- MiSTer core main clock speed:
       -- Make sure you pass very exact numbers here, because they are used for avoiding clock drift at derived clocks
       clk_main_speed_i        : in  natural;
@@ -30,9 +31,9 @@ entity main is
       -- Video output
       video_ce_o              : out std_logic;
       video_ce_ovl_o          : out std_logic;
-      video_red_o             : out std_logic_vector(7 downto 0);
-      video_green_o           : out std_logic_vector(7 downto 0);
-      video_blue_o            : out std_logic_vector(7 downto 0);
+      video_red_o             : out std_logic_vector(3 downto 0);
+      video_green_o           : out std_logic_vector(3 downto 0);
+      video_blue_o            : out std_logic_vector(3 downto 0);
       video_vs_o              : out std_logic;
       video_hs_o              : out std_logic;
       video_hblank_o          : out std_logic;
@@ -62,7 +63,18 @@ entity main is
       pot1_x_i                : in  std_logic_vector(7 downto 0);
       pot1_y_i                : in  std_logic_vector(7 downto 0);
       pot2_x_i                : in  std_logic_vector(7 downto 0);
-      pot2_y_i                : in  std_logic_vector(7 downto 0)
+      pot2_y_i                : in  std_logic_vector(7 downto 0);
+      
+       -- Dipswitches
+      dsw_1_i                 : in  std_logic_vector(7 downto 0);
+      dsw_2_i                 : in  std_logic_vector(7 downto 0);
+      
+      dn_clk_i                : in  std_logic;
+      dn_addr_i               : in  std_logic_vector(16 downto 0);
+      dn_data_i               : in  std_logic_vector(7 downto 0);
+      dn_wr_i                 : in  std_logic;
+      
+      osm_control_i      : in  std_logic_vector(255 downto 0)
    );
 end entity main;
 
@@ -70,53 +82,146 @@ architecture synthesis of main is
 
 -- @TODO: Remove these demo core signals
 signal keyboard_n          : std_logic_vector(79 downto 0);
+signal pause_cpu         : std_logic;
+signal flip_screen       : std_logic;
+signal flip              : std_logic := '0';
+signal video_rotated     : std_logic;
+signal rotate_ccw        : std_logic := flip_screen;
+signal direct_video      : std_logic;
+signal forced_scandoubler: std_logic;
+--signal no_rotate         : std_logic := status(2) OR direct_video;
+signal gamma_bus         : std_logic_vector(21 downto 0);
+signal audio             : std_logic_vector(7 downto 0);
+
+signal reset             : std_logic  := reset_hard_i or reset_soft_i;
+
+-- highscore system
+signal hs_address       : std_logic_vector(15 downto 0);
+signal hs_data_in       : std_logic_vector(7 downto 0);
+signal hs_data_out      : std_logic_vector(7 downto 0);
+signal hs_write_enable  : std_logic;
+
+signal hs_pause         : std_logic;
+signal options          : std_logic_vector(1 downto 0);
+
+constant C_MENU_OSMPAUSE     : natural := 2;
+constant C_MENU_OSMDIM       : natural := 3;
+constant C_MENU_FLIP         : natural := 9;
+
+-- Game player inputs
+constant m65_1             : integer := 56; --Player 1 Start
+constant m65_2             : integer := 59; --Player 2 Start
+constant m65_5             : integer := 16; --Insert coin 1
+constant m65_6             : integer := 19; --Insert coin 2
+
+-- Offer some keyboard controls in addition to Joy 1 Controls
+constant m65_up_crsr       : integer := 73; --Player up
+constant m65_vert_crsr     : integer := 7;  --Player down
+constant m65_left_crsr     : integer := 74; --Player left
+constant m65_horz_crsr     : integer := 2;  --Player right
+constant m65_left_shift    : integer := 15; --Fire
+
+-- Pause, credit button & test mode
+constant m65_p             : integer := 41; --Pause button
+constant m65_help          : integer := 67; --Help key
 
 begin
+	
+	--audio left
+    audio_left_o(15) <= not audio(7);
+    audio_left_o(14 downto 8) <= signed(audio(6 downto 0));
+    audio_left_o(7) <= audio(7);
+    audio_left_o(6 downto 0) <= signed(audio(6 downto 0));
+    --audio right
+    audio_right_o(15) <= not audio(7);
+    audio_right_o(14 downto 8) <= signed(audio(6 downto 0));
+    audio_right_o(7) <= audio(7);
+    audio_right_o(6 downto 0) <= signed(audio(6 downto 0));
+   
+    options(0) <= osm_control_i(C_MENU_OSMPAUSE);
+    options(1) <= osm_control_i(C_MENU_OSMDIM);
+    flip_screen <= osm_control_i(C_MENU_FLIP);
+	
+	
+	i_bombjack_top : entity work.bombjack_top
+    port map (
+    
+    clk_48M    => clk_main_i,
+    clk_6M     => open,
+    reset      => reset,
+    
+    VGA_R      => video_red_o,
+    VGA_G      => video_green_o,
+    VGA_B      => video_blue_o,
+   
+    VGA_HS     => video_hs_o,
+    VGA_VS     => video_vs_o,
+    O_HBLANK   => video_hblank_o,
+    O_VBLANK   => video_vblank_o,
+    audio      => audio,
+    p1_coin    => not keyboard_n(m65_5),
+    p2_coin    => not keyboard_n(m65_6),
+    p1_start   => not keyboard_n(m65_1),
+    p2_start   => not keyboard_n(m65_2),
+    p1_up      => not joy_1_up_n_i or not keyboard_n(m65_up_crsr),
+    p1_down    => not joy_1_down_n_i or not keyboard_n(m65_vert_crsr),
+    p1_left    => not joy_1_left_n_i or not keyboard_n(m65_left_crsr),
+    p1_right   => not joy_1_right_n_i or not keyboard_n(m65_horz_crsr),
+    p1_jump    => not joy_1_fire_n_i or not keyboard_n(m65_left_shift),
+    -- player 2 joystick is only active in cocktail/table mode.
+    p2_up      => not joy_2_up_n_i or not keyboard_n(m65_up_crsr),
+    p2_down    => not joy_2_down_n_i or not keyboard_n(m65_vert_crsr),
+    p2_left    => not joy_2_left_n_i or not keyboard_n(m65_left_crsr),
+    p2_right   => not joy_2_right_n_i or not keyboard_n(m65_horz_crsr),
+    p2_jump    => not joy_2_fire_n_i or not keyboard_n(m65_left_shift),
+    flip_screen => flip_screen,
+    
+    SW_DEMOSOUNDS => dsw_1_i(7),
+    SW_CABINET    => dsw_1_i(6),
+    SW_LIVES      => dsw_1_i(5 downto 4),
+    SW_ENEMIES    => dsw_2_i(6 downto 5),
+    SW_BIRDSPEED  => dsw_2_i(4 downto 3),
+    SW_BONUS      => dsw_2_i(2 downto 0),
+    pause      => pause_cpu or pause_i,
+   
+    hs_address => hs_address,
+    hs_data_out => hs_data_out,
+    hs_data_in => hs_data_in,
+    hs_write   => hs_write_enable,
+    
 
-   -- @TODO: Add the actual MiSTer core here
-   -- The demo core's purpose is to show a test image and to make sure, that the MiSTer2MEGA65 framework
-   -- can be synthesized and run stand-alone without an actual MiSTer core being there, yet
-   i_democore : entity work.democore
-      port map (
-         clk_main_i           => clk_main_i,
-
-         reset_i              => reset_soft_i or reset_hard_i,       -- long and short press of reset button mean the same
-         pause_i              => pause_i,
-
-         ball_col_rgb_i       => x"EE4020",                          -- ball color (RGB): orange
-         paddle_speed_i       => x"1",                               -- paddle speed is about 50 pixels / sec (due to 50 Hz)
-
-         keyboard_n_i         => keyboard_n,                         -- move the paddle with the cursor left/right keys...
-         joy_up_n_i           => joy_1_up_n_i,                       -- ... or move the paddle with a joystick in port #1
-         joy_down_n_i         => joy_1_down_n_i,
-         joy_left_n_i         => joy_1_left_n_i,
-         joy_right_n_i        => joy_1_right_n_i,
-         joy_fire_n_i         => joy_1_fire_n_i,
-
-         vga_ce_o             => video_ce_o,
-         vga_red_o            => video_red_o,
-         vga_green_o          => video_green_o,
-         vga_blue_o           => video_blue_o,
-         vga_vs_o             => video_vs_o,
-         vga_hs_o             => video_hs_o,
-         vga_hblank_o         => video_hblank_o,
-         vga_vblank_o         => video_vblank_o,
-
-         audio_left_o         => audio_left_o,
-         audio_right_o        => audio_right_o
-      ); -- i_democore
-
-   -- On video_ce_o and video_ce_ovl_o: You have an important @TODO when porting a core:
-   -- video_ce_o: You need to make sure that video_ce_o divides clk_main_i such that it transforms clk_main_i
-   --             into the pixelclock of the core (means: the core's native output resolution pre-scandoubler)
-   -- video_ce_ovl_o: Clock enable for the OSM overlay and for sampling the core's (retro) output in a way that
-   --             it is displayed correctly on a "modern" analog input device: Make sure that video_ce_ovl_o
-   --             transforms clk_main_o into the post-scandoubler pixelclock that is valid for the target
-   --             resolution specified by VGA_DX/VGA_DY (globals.vhd)
-   -- video_retro15kHz_o: '1', if the output from the core (post-scandoubler) in the retro 15 kHz analog RGB mode.
-   --             Hint: Scandoubler off does not automatically mean retro 15 kHz on.
-   video_ce_ovl_o <= video_ce_o;
-
+    dn_clk     => dn_clk_i,
+    dn_addr    => dn_addr_i,
+    dn_data    => dn_data_i,
+    dn_wr      => dn_wr_i
+ );
+ 
+	i_pause : entity work.pause
+     generic map (
+     
+        RW  => 4,
+        GW  => 4,
+        BW  => 4,
+        CLKSPD => 48
+        
+     )         
+     port map (
+     
+         clk_sys        => clk_main_i,
+         reset          => reset,
+         user_button    => keyboard_n(m65_p),
+         pause_request  => hs_pause,
+         options        => options,  -- not status(11 downto 10), - TODO, hookup to OSD.
+         OSD_STATUS     => '0',       -- disabled for now - TODO, to OSD
+         r              => video_red_o,
+         g              => video_green_o,
+         b              => video_blue_o,
+         pause_cpu      => pause_cpu,
+         dim_video      => dim_video_o
+         --rgb_out        TODO
+         
+      );
+      
    -- @TODO: Keyboard mapping and keyboard behavior
    -- Each core is treating the keyboard in a different way: Some need low-active "matrices", some
    -- might need small high-active keyboard memories, etc. This is why the MiSTer2MEGA65 framework
