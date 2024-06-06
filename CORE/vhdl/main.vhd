@@ -182,7 +182,7 @@ begin
     SW_ENEMIES    => dsw_2_i(6 downto 5),
     SW_BIRDSPEED  => dsw_2_i(4 downto 3),
     SW_BONUS      => dsw_2_i(2 downto 0),
-    pause      => pause_cpu or pause_i,
+    pause         => pause_cpu or pause_i,
    
     hs_address => hs_address,
     hs_data_out => hs_data_out,

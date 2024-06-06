@@ -358,56 +358,6 @@ constant C_320_288_50 : video_modes_t := (
 
 begin
 
-   hr_core_write_o      <= '0';
-   hr_core_read_o       <= '0';
-   hr_core_address_o    <= (others => '0');
-   hr_core_writedata_o  <= (others => '0');
-   hr_core_byteenable_o <= (others => '0');
-   hr_core_burstcount_o <= (others => '0');
-
-   -- Tristate all expansion port drivers that we can directly control
-   -- @TODO: As soon as we support modules that can act as busmaster, we need to become more flexible here
-   cart_ctrl_oe_o       <= '0';
-   cart_addr_oe_o       <= '0';
-   cart_data_oe_o       <= '0';
-   cart_en_o            <= '0'; -- Disable port
-
-   cart_reset_oe_o      <= '0';
-   cart_game_oe_o       <= '0';
-   cart_exrom_oe_o      <= '0';
-   cart_nmi_oe_o        <= '0';
-   cart_irq_oe_o        <= '0';
-   cart_roml_oe_o       <= '0';
-   cart_romh_oe_o       <= '0';
-
-   -- Default values for all signals
-   cart_phi2_o          <= '0';
-   cart_reset_o         <= '1';
-   cart_dotclock_o      <= '0';
-   cart_game_o          <= '1';
-   cart_exrom_o         <= '1';
-   cart_nmi_o           <= '1';
-   cart_irq_o           <= '1';
-   cart_roml_o          <= '0';
-   cart_romh_o          <= '0';
-   cart_ba_o            <= '0';
-   cart_rw_o            <= '0';
-   cart_io1_o           <= '0';
-   cart_io2_o           <= '0';
-   cart_a_o             <= (others => '0');
-   cart_d_o             <= (others => '0');
-
-   main_joy_1_up_n_o    <= '1';
-   main_joy_1_down_n_o  <= '1';
-   main_joy_1_left_n_o  <= '1';
-   main_joy_1_right_n_o <= '1';
-   main_joy_1_fire_n_o  <= '1';
-   main_joy_2_up_n_o    <= '1';
-   main_joy_2_down_n_o  <= '1';
-   main_joy_2_left_n_o  <= '1';
-   main_joy_2_right_n_o <= '1';
-   main_joy_2_fire_n_o  <= '1';
-
    -- MMCME2_ADV clock generators:
    --   @TODO YOURCORE:       54 MHz
    clk_gen : entity work.clk
@@ -667,7 +617,7 @@ begin
    -- Video and audio mode control
    qnice_dvi_o                <= '0';                                         -- 0=HDMI (with sound), 1=DVI (no sound)
    qnice_audio_mute_o         <= '0';                                         -- audio is not muted
-  
+   qnice_audio_filter_o       <= '1';                                         -- 0 = raw audio, 1 = use filters from globals.vhd
    -- These two signals are often used as a pair (i.e. both '1'), particularly when
    -- you want to run old analog cathode ray tube monitors or TVs (via SCART)
    -- If you want to provide your users a choice, then a good choice is:
@@ -697,7 +647,7 @@ begin
    qnice_ascal_triplebuf_o    <= '0';
 
    -- Flip joystick ports (i.e. the joystick in port 2 is used as joystick 1 and vice versa)
-   qnice_flip_joyports_o      <= '0';
+   qnice_flip_joyports_o      <=  qnice_osm_control_i(C_FLIP_JOYS);
 
    ---------------------------------------------------------------------------------------------
    -- Core specific device handling (QNICE clock domain)
@@ -708,10 +658,11 @@ begin
       -- make sure that this is x"EEEE" by default and avoid a register here by having this default value
       qnice_dev_data_o     <= x"EEEE";
       qnice_dev_wait_o     <= '0';
-
-      -- Demo core specific: Delete before starting to port your core
-      qnice_demo_vd_ce     <= '0';
-      qnice_demo_vd_we     <= '0';
+        
+      -- Default values
+      qnice_dn_wr      <= '0';
+      qnice_dn_addr    <= (others => '0');
+      qnice_dn_data    <= (others => '0');
 
       case qnice_dev_id_i is
 
@@ -814,68 +765,6 @@ begin
    -- and make sure that the you configure the port that works with QNICE as a falling edge
    -- by setting G_FALLING_A or G_FALLING_B (depending on which port you use) to true.
 
-   ---------------------------------------------------------------------------------------
-   -- Virtual drive handler
-   --
-   -- Only added for demo-purposes at this place, so that we can demonstrate the
-   -- firmware's ability to browse files and folders. It is very likely, that the
-   -- virtual drive handler needs to be placed somewhere else, for example inside
-   -- main.vhd. We advise to delete this before starting to port a core and re-adding
-   -- it later (and at the right place), if and when needed.
-   ---------------------------------------------------------------------------------------
-
-   -- @TODO:
-   -- a) In case that this is handled in main.vhd, you need to add the appropriate ports to i_main
-   -- b) You might want to change the drive led's color (just like the C64 core does) as long as
-   --    the cache is dirty (i.e. as long as the write process is not finished, yet)
-   main_drive_led_o     <= '0';
-   main_drive_led_col_o <= x"00FF00";  -- 24-bit RGB value for the led
-
-   i_vdrives : entity work.vdrives
-      generic map (
-         VDNUM       => C_VDNUM
-      )
-      port map
-      (
-         clk_qnice_i       => qnice_clk_i,
-         clk_core_i        => main_clk,
-         reset_core_i      => main_reset_core_i,
-
-         -- Core clock domain
-         img_mounted_o     => open,
-         img_readonly_o    => open,
-         img_size_o        => open,
-         img_type_o        => open,
-         drive_mounted_o   => open,
-
-         -- Cache output signals: The dirty flags can be used to enforce data consistency
-         -- (for example by ignoring/delaying a reset or delaying a drive unmount/mount, etc.)
-         -- The flushing flags can be used to signal the fact that the caches are currently
-         -- flushing to the user, for example using a special color/signal for example
-         -- at the drive led
-         cache_dirty_o     => open,
-         cache_flushing_o  => open,
-
-         -- QNICE clock domain
-         sd_lba_i          => (others => (others => '0')),
-         sd_blk_cnt_i      => (others => (others => '0')),
-         sd_rd_i           => (others => '0'),
-         sd_wr_i           => (others => '0'),
-         sd_ack_o          => open,
-
-         sd_buff_addr_o    => open,
-         sd_buff_dout_o    => open,
-         sd_buff_din_i     => (others => (others => '0')),
-         sd_buff_wr_o      => open,
-
-         -- QNICE interface (MMIO, 4k-segmented)
-         -- qnice_addr is 28-bit because we have a 16-bit window selector and a 4k window: 65536*4096 = 268.435.456 = 2^28
-         qnice_addr_i      => qnice_dev_addr_i,
-         qnice_data_i      => qnice_dev_data_i,
-         qnice_data_o      => qnice_demo_vd_data_o,
-         qnice_ce_i        => qnice_demo_vd_ce,
-         qnice_we_i        => qnice_demo_vd_we
-      ); -- i_vdrives
 
 end architecture synthesis;
 
